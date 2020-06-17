@@ -63,7 +63,7 @@ fprintf("-----PCA analysis-----\n");
 for i=1:size(data.DT,1)
     Ctest = PCATest(data.DT(i,:),Xmean,W,d);
     labelChosen = kNN(Ctest,C,data.LL,0:9,k);
-    fprintf("Individu %d reconnu comme %d\n",data.LT(i),labelChosen);
+    fprintf("Number %d classified as %d\n",data.LT(i),labelChosen);
 end
 
 %% STORM analysis
@@ -72,5 +72,5 @@ for i=1:size(data.DT,1)
     data.P = [data.DL; data.DT(i,:)];
     Xreduced = STORMoptimisation(data,config);
     labelChosen = kNN(Xreduced(size(Xreduced,1),:),Xreduced(1:(size(Xreduced,1)-1),:),data.LL,0:9,k);
-    fprintf("Individu %d reconnu comme %d\n",data.LT(i),labelChosen);
+    fprintf("Number %d classified as %d\n",data.LT(i),labelChosen);
 end
