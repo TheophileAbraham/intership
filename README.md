@@ -1,4 +1,4 @@
-<b> 2020-06-01 to 2020-08-31 intership at Missouri S&T under Wenqing Hu (Missouri S&T) </b>
+<b> 2020-06-01 to 2020-08-31 intership projects at Missouri S&T under Wenqing Hu (Missouri S&T) </b>
 
 <b> Project 1. SNE (Stochastic Neighbor Embedding) </b>
 
