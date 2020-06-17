@@ -1,4 +1,5 @@
-# 2020-06-01 to 2020-08-31 intership at Missouri S&T under Wenqing Hu (Missouri S&T)
+<b> 2020-06-01 to 2020-08-31 intership at Missouri S&T under Wenqing Hu (Missouri S&T) </b>
+
 <b> Project SNE (Stochastic Neighbor Embedding) </b>
 
 to launch the algorithm, launch main.m
