@@ -1,3 +1,7 @@
+%Optimization of SNE via STORM-C
+
+%author: Wenqing Hu (Missouri S&T) and Thephile Abraham (ENSEEHIT, Tulouse)
+
 function [w] = STORMoptimisation(data,config)
     w = zeros(size(data.P, 1), config.m) + [1:size(data.P,1)]'/size(data.P,1);
         %w=(w_1//...//w_n) each w_i is d-dimensional row vector
