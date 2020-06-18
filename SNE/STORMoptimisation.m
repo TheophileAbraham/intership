@@ -167,16 +167,10 @@ function [F_1, F_2] = compute_F(data, dataP, g, indexes);
        F_1 = F_1 + F_1_j;
     end
     
-   
-    F_2 = (sum(dataP(indexes(1), :), 1) * n .* (1./g))';
-    for j=2:batch_size
-        sample_F = indexes(j);
-        F_2j = (sum(dataP(sample_F, :), 1) * n .* (1./g))';
-        F_2 = F_2 + F_2j;
-    end
-    
     F_1  = F_1  / batch_size;
-    F_2  = F_2  / batch_size;
+    
+    F_2 = (sum(dataP(indexes, :), 1) * n .* (1./g))'/batch_size;
+    
 end
 
 %calculate the second part of grad f
@@ -185,7 +179,6 @@ function [gradphi_2] = compute_gradphi_2(G, F_2)
     d = size(G, 1);
     gradphi_2 = zeros(n, d);
     for i=1:n
-        gradphi_2(i, :) = G(:, :, i) * F_2;
+        gradphi_2(i, :) = (G(:, :, i) * F_2)';
     end
-end
-
+end    
