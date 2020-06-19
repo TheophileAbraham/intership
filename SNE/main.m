@@ -10,11 +10,11 @@ d = 10;
 
 config.l1 = 0;
 config.m = d;
-config.STORM_max_iters = 350;
+config.STORM_max_iters = 4830;
 config.STORM_ifnormalization = 1;
 config.STORM_ifreplace = 1;
-config.STORM_eps = 0.1;
-config.STORM_lr = 0.1;
+config.STORM_eps = 0.01;
+config.STORM_lr = 1;
 config.STORM_initial_bs=100;
 config.STORM_loop_bs_g=100;
 config.STORM_loop_bs_G=100;
