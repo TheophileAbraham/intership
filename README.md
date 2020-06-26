@@ -2,8 +2,6 @@
 
 <i> Project 1. SNE (Stochastic Neighbor Embedding) </i>
 
-KL-divergence <a href="https://www.codecogs.com/eqnedit.php?latex=a&space;\equiv&space;b" target="_blank"><img src="https://latex.codecogs.com/gif.latex?a&space;\equiv&space;b" title="a \equiv b" /></a>
-
 to launch the algorithm, launch main.m
  
 PCALearning.m, PCATest.m are used to perform the PCA
