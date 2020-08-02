@@ -10,4 +10,6 @@ kNN.m, searchClass.m, Max.m are used to perform the k-NN algorithm
  
 STORMoptimization.m is used to perform the SNE algorithm
 
-<i> Project 2. </i>
+<i> Project 2. Deep Learning </i>
+
+Several commonly seen neural network structures for deep learning: ResNet, Convolutional Neural Network, Recurrent Neural Network
