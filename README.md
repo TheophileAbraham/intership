@@ -2,6 +2,8 @@
 
 <i> Project 1. SNE (Stochastic Neighbor Embedding) </i>
 
+Stochastic Neighbor Embedding via various optimization methods
+
 to launch the algorithm, launch main.m
  
 PCALearning.m, PCATest.m are used to perform the PCA
