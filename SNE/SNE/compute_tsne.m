@@ -49,11 +49,3 @@ function [out] = GD(data, w)
     grad = grad + F1_dev;
     out = grad;
 end
-%Get the distance matrix
-function [dist_matrix] = Dist(data, sig)
-    if sig == 0
-        dist_matrix = exp(-squareform(pdist(data, 'euclidean')).^2);        
-    else
-        dist_matrix = exp(-squareform(pdist(data, 'euclidean')).^2./(2 * sig^2));
-    end
-end
