@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from scipy.optimize import fmin
+import tensorflow as tf
 
 # Exceptions used
 class UnknowFunction(Exception) :
@@ -23,6 +23,10 @@ def sigmoid(z) :
 def tanh(z) :
     return math.tanh(z)
 
+def softmax(z) :
+    expz = np.exp(z)
+    return expz/(expz.sum())
+
 
 # utility functions
 def convolution2D(data,kernel,stride=1,padding=0) :
@@ -44,18 +48,16 @@ def convolution2D(data,kernel,stride=1,padding=0) :
             res[i//stride, j//stride] = (kernel * dataPadded[i: i + lenKernel, j: j + widKernel]).sum()
     return res
 
-def softmax(z) :
-    expz = np.exp(z)
-    return expz/(expz.sum())
-
 def checkActivation(name) :
     """check if the name corespond to an existing activation function and return the right function"""
     if name == "relu" :
-        return lambda z : relu(z)
+        return np.vectorize(lambda z : relu(z))
     elif name == "sigmoid" :
-        return lambda z : sigmoid(z)
+        return np.vectorize(lambda z : sigmoid(z))
     elif name == "tanh" :
-        return lambda z : tanh(z)
+        return np.vectorize(lambda z : tanh(z))
+    elif name == "softmax" :
+        return lambda z : softmax(z)
     else :
         raise UnknowFunction(name)
 
@@ -63,14 +65,11 @@ def checkActivation(name) :
 # default score
 def noScore(restheo, rescomputed) :
     """the score used if no custom score has been inputed by the user"""
-    if restheo == rescomputed :
-        return 0
-    else :
-        return 1
+    return (np.abs(restheo - rescomputed)).sum()
 
 
 # definition of class to create a neural network
-class NeuralNetwork :
+class Network :
     """Principal Class to create a neural network"""
     def __init__(self,inputSize) :
         self.__inputSize = inputSize
@@ -102,30 +101,50 @@ class NeuralNetwork :
         nbParameter = 0
         for layer in self.__layers :
             nbParameter = nbParameter + layer.getNbParameter()
+        self.__nbParameter = nbParameter
         # optimisation of the parameters
-        paramsRes = np.zeros(nbParameter)
-        loss = lambda params : self.loss(data,result,score,params)
-        self.__param = fmin(loss,np.zeros(nbParameter))
+        tf.enable_eager_execution()
+        params = tf.Variable(np.random.randn(nbParameter),trainable=True)
+        loss = lambda : self.loss(data,result,score,params)
+        opt = tf.keras.optimizers.Adam(learning_rate = 0.1)
+        opt.minimize(loss,[params])
+        #self.__params = params.eval(session=tf.compat.v1.Session())
 
     def compute(self,data) :
         """compute the use of the neural network after the learning"""
+        # first, we check if the dimention of the data is right
+        if (data.shape != self.__inputSize) :
+            raise WrongDimention
         # for each layer, we give the inner data between the previous layer and the one we work on it
         # and the list of parameters of the neural network, amputed from their first parameters, in a
         # way that the first parameters of the given list is the parameters of the layer
         index = 0
         for layer in self.__layers :
-            data = layer.compute(data,param[index:])
+            data = layer.compute(data,self.__params[index:])
             index = index + layer.getNbParameter()
         return data
     
     def loss(self,data,result,score,params) :
         """describe the loss needed for the optimisation"""
+        # convert params (tf.Tensor) into a numpy array
+        #self.__params = tf.Session().run(params)
+        self.__params = params.numpy()
         # calcul the mean of the score of each computation of one data and the score needed
         res = 0
-        n = len(label)
-        for i in range(n) :
-            res = res + score(result[i], self.compute(data[i,:,:],params))/n
-        return res
+        n = len(result)
+        if len(data.shape) == 2 :
+            for i in range(n) :
+                res = res + score(result[i,:], self.compute(data[i,:]))/n
+        elif len(data.shape) == 3 :
+            for i in range(n) :
+                res = res + score(result[i,:], self.compute(data[i,:,:]))/n
+        elif len(data.shape) == 4 :
+            for i in range(n) :
+                res = res + score(result[i,:], self.compute(data[i,:,:,:]))/n
+        else :
+            raise WrongDimentions
+        print(res)
+        return tf.constant(res)
 
 
 # class that define a layer. Each class must have the getNbParameter() and compute(data,param) functions
@@ -137,31 +156,48 @@ class DenseLayer :
             raise UnusableType
         self.__sizeOutput = lengthOutput
         # chose what activation function the user want to use
-        self.__activation = np.vectorize(checkActivation(activation))
+        self.__activation = checkActivation(activation)
     
     def getNbParameter(self) :
         return self.__sizeNeuron[0] * self.__sizeNeuron[1]
     
     def setInputSize(self,inputSize) :
         # compute the number of input
-        inputLength = 1
-        for i in inputSize :
-            inputLength = inputLength * i
+        if not(isinstance(inputSize,int)) :
+            raise WrongDimention
         # the size of the matrix representing the layer
-        self.__sizeNeuron = (self.__sizeOutput,inputLength)
+        self.__sizeNeuron = (self.__sizeOutput,inputSize)
     
     def getOutputSize(self) :
         return self.__sizeOutput
     
     def compute(self,data,param) :
-        # vectorize the input
-        x = np.reshape(data,(-1,1))
         # construct the matrix representing the layer from the list of parameters
-        neuron = np.reshape(np.array(param[:(self.__sizeNeuron[0]*self.__sizeNeuron[1])]),self.__sizeNeuron)
+        neuron = np.reshape(param[:(self.__sizeNeuron[0]*self.__sizeNeuron[1])],self.__sizeNeuron)
         # compute the result before the activation
-        linearResult = np.dot(neuron,x)
+        linearResult = np.dot(neuron,data)
         # compute the result and return it after the activation
         return np.reshape(self.__activation(linearResult),(self.__sizeOutput))
+    
+
+class FlattenLayer :
+    def __init(self) :
+        pass
+
+    def getNbParameter(self) :
+        return 0
+    
+    def setInputSize(self, inputSize) :
+        self.__inputSize = inputSize
+    
+    def getOutputSize(self) :
+        res = 1
+        for i in self.__inputSize :
+            res = res*i
+        return res
+    
+    def compute(self,data,param) :
+        return np.reshape(data,-1)
 
 
 class ResNetLayer :
@@ -175,7 +211,6 @@ class ResNetLayer :
         # the memory of the data micked up
         self.__x = None
 
-    
     def getNbParameter(self) :
         # this layer didn't take any parameter
         return 0
@@ -186,7 +221,7 @@ class ResNetLayer :
     def getOutputSize(self) :
         return self.__sizeOutput
     
-    def compute(self,data) :
+    def compute(self,data,param) :
         # chose if it is the first time this layer is used, or the second
         if self.__x == None :
             # if it is the firt time the layer is called, it have to pick up the inner data, and
@@ -220,7 +255,7 @@ class ConvLayer :
             kernelSizeList.append(1)
         self.__kernelSize = tuple(kernelSizeList)
         # chose what activation function the user want to use
-        self.__activation = np.vectorize(checkActivation(activation))
+        self.__activation = checkActivation(activation)
         # calculate the number of parameters needed
         self.__nbParameter = 1
         for dimension in kernelSize :
@@ -236,44 +271,46 @@ class ConvLayer :
     
     def setInputSize(self,sizeInput) :
         # check if the size of the input is usable by the algorithm
-        if sizeInput[0] < self.__kernelSize[0] or sizeInput[1] < self.__kernelSize[1] or sizeInput[2] != self.__kernelSize[2] :
+        if sizeInput[1] < self.__kernelSize[2] or sizeInput[2] < self.__kernelSize[3] or sizeInput[0] != self.__kernelSize[1] :
             raise WrongDimention
-        self.__sizeInput = sizeInput
+        self.__inputSize = sizeInput
     
     def getOutputSize(self) :
-        return ((data.shape[0] + 2*self.__padding - kernel.shape[0])/self.__stride + 1,(data.shape[1] + 2*self.__padding - kernel.shape[1])/self.__stride + 1,kernel.shape[3])
+        return (self.__kernelSize[0],(self.__inputSize[1] + 2*self.__padding - self.__kernelSize[2])/self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__kernelSize[3])/self.__stride + 1)
 
     def compute(self,data,param) :
         # check if the kernel was given by the user or it have to be found
         if (self.__kernel == None).any() :
             # if the kernel have to be found, we buil it from 
-            kernel = np.reshape(param, self.__kernelSize)
+            kernel = np.reshape(param[:self.__nbParameter], self.__kernelSize)
         else :
             # otherwise, we take the given kernel
             kernel = self.__kernel
-        linearRes = np.zeros(((data.shape[0] + 2*self.__padding - kernel.shape[0])//self.__stride + 1,(data.shape[1] + 2*self.__padding - kernel.shape[1])//self.__stride + 1,kernel.shape[3]))
+        linearRes = np.zeros((kernel.shape[0],(data.shape[1] + 2*self.__padding - kernel.shape[2])//self.__stride + 1,(data.shape[2] + 2*self.__padding - kernel.shape[3])//self.__stride + 1))
         # for each output channel, we're doing the 3D convolution
-        for k in range(kernel.shape[3]) :
+        for k in range(kernel.shape[0]) :
             # for each input channel, we're doing the 2D convolution and we add the results
-            for c in range(kernel.shape[2]) :
-                linearRes[:,:,k] = linearRes[:,:,k] + convolution2D(data[:,:,c],kernel[:,:,c,k],self.__stride,self.__padding)
+            for c in range(kernel.shape[1]) :
+                linearRes[k,:,:] = linearRes[k,:,:] + convolution2D(data[c,:,:],kernel[k,c,:,:],self.__stride,self.__padding)
         # we compute the result with the activation function before give it to the following layers
         return self.__activation(linearRes)
 
     def setKernel(self,kernel) :
         """fonction to set the kernel"""
-        for i in range(len(kernel.shape)) :
-            if kernel.shape[i] != self.__kernelSize[i] :
+        j = 0
+        for i in range(4-len(kernel.shape),4) :
+            if kernel.shape[j] != self.__kernelSize[i] :
                 raise WrongDimention
-        for i in self.__kernelSize[len(kernel.shape):] :
+            j = j+1
+        for i in self.__kernelSize[:4-len(kernel.shape)] :
             if i != 1 :
                 raise WrongDimention
         if (len(kernel.shape) == 2) :
-            self.__kernel = np.zeros((kernel.shape[0],kernel.shape[1],1,1))
-            self.__kernel[:,:,0,0] = kernel
+            self.__kernel = np.zeros((1,1,kernel.shape[0],kernel.shape[1]))
+            self.__kernel[0,0:,:] = kernel
         elif (len(kernel.shape) == 3) :
-            self.__kernel = np.zeros((kernel.shape[0],kernel.shape[1],kernel.shape[2],1))
-            self.__kernel[:,:,:,0] = kernel
+            self.__kernel = np.zeros((1,kernel.shape[0],kernel.shape[1],kernel.shape[2]))
+            self.__kernel[0,:,:,:] = kernel
         elif (len(kernel.shape) == 4) :
             self.__kernel = kernel
         else :
@@ -306,28 +343,29 @@ class MaxPooling :
     
     def setInputSize(self, inputSize) :
         # check if the input is usable by the algorithm
-        if ((inputSize[0] + 2*self.__padding - self.__size[0])%self.__stride != 0 or (inputSize[1] + 2*self.__padding - self.__size[1])%self.__stride != 0) :
+        if ((inputSize[1] + 2*self.__padding - self.__size[0])%self.__stride != 0 or (inputSize[2] + 2*self.__padding - self.__size[1])%self.__stride != 0) :
             raise WrongDimention
-        if (inputSize[0] < self.__size[0] or inputSize[1] < self.__size[1]) :
+        if (inputSize[1] < self.__size[0] or inputSize[2] < self.__size[1]) :
             raise WrongDimention
+        self.__inputSize = inputSize
     
     def getOutputSize(self) :
-        return ((data.shape[0] + 2*self.__padding - self.__size[0])//self.__stride + 1,(data.shape[1] + 2*self.__padding - self.__size[1])//self.__stride + 1,data.shape[2])
+        return (self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1)
     
     def compute(self,data,param) :
-        res = np.zeros(((data.shape[0] + 2*self.__padding - self.__size[0])//self.__stride + 1,(data.shape[1] + 2*self.__padding - self.__size[1])//self.__stride + 1,data.shape[2]))
+        res = np.zeros((data.shape[0],(data.shape[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(data.shape[2] + 2*self.__padding - self.__size[1])//self.__stride + 1))
         # padding the data
         if self.__padding != 0 :
-            dataPadded = np.zeros((data.shape[0] + self.__padding*2, data.shape[1] + self.__padding*2))
-            dataPadded[self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data
+            dataPadded = np.zeros((data.shape[1] + self.__padding*2, data.shape[2] + self.__padding*2))
+            dataPadded[:,self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data
         else :
             dataPadded = data
         # k is the number of current channel we are working on
-        for k in range(data.shape[2]) :
+        for k in range(data.shape[0]) :
             # (i,j) is the coordinates of the extracted matrix from data we will perform the maximum
-            for j in range(0, data.shape[1] - self.__size[1] + 1, self.__stride) :
-                for i in range(0, data.shape[0] - self.__size[0] + 1, self.__stride) :
-                    res[i//self.__stride, j//self.__stride, k] = data[i:i+self.__size[0],j:j+self.__size[1],k].max()
+            for j in range(0, data.shape[2] - self.__size[1] + 1, self.__stride) :
+                for i in range(0, data.shape[1] - self.__size[0] + 1, self.__stride) :
+                    res[k, i//self.__stride, j//self.__stride] = dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]].max()
         return res
     
     def setStride(self,stride) :
@@ -356,28 +394,29 @@ class AveragePooling :
 
     def setInputSize(self, inputSize) :
         # check if the input is usable by the algorithm
-        if ((inputSize[0] + 2*self.__padding - self.__size[0])%self.__stride != 0 or (inputSize[1] + 2*self.__padding - self.__size[1])%self.__stride != 0) :
+        if ((inputSize[1] + 2*self.__padding - self.__size[0])%self.__stride != 0 or (inputSize[2] + 2*self.__padding - self.__size[1])%self.__stride != 0) :
             raise WrongDimention
-        if (inputSize[0] < self.__size[0] or inputSize[1] < self.__size[1]) :
+        if (inputSize[1] < self.__size[0] or inputSize[2] < self.__size[1]) :
             raise WrongDimention
+        self.__inputSize = inputSize
     
     def getOutputSize(self) :
-        return ((data.shape[0] + 2*self.__padding - self.__size[0])//self.__stride + 1,(data.shape[1] + 2*self.__padding - self.__size[1])//self.__stride + 1,data.shape[2])
+        return (self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1)
 
     def compute(self,data,param) :
-        res = np.zeros(((data.shape[0] + 2*self.__padding - self.__size[0])//self.__stride + 1,(data.shape[1] + 2*self.__padding - self.__size[1])//self.__stride + 1,data.shape[2]))
+        res = np.zeros((data.shape[0],(data.shape[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(data.shape[2] + 2*self.__padding - self.__size[1])//self.__stride + 1))
         # padding the data
         if self.__padding != 0 :
-            dataPadded = np.zeros((data.shape[0] + self.__padding*2, data.shape[1] + self.__padding*2))
-            dataPadded[self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data
+            dataPadded = np.zeros((data.shape[1] + self.__padding*2, data.shape[2] + self.__padding*2))
+            dataPadded[:,self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data
         else :
             dataPadded = data
         # k is the number of current channel we are working on
-        for k in range(data.shape[2]) :
+        for k in range(data.shape[0]) :
             # (i,j) is the coordinates of the extracted matrix from data we will perform the average
-            for j in range(0, data.shape[1] - self.__size[1] + 1, self.__stride) :
-                for i in range(0, data.shape[0] - self.__size[0] + 1, self.__stride) :
-                    res[i//self.__stride, j//self.__stride, k] = data[i:i+self.__size[0],j:j+self.__size[1],k].sum()/(float(self.__size[0]*self.__size[1]))
+            for j in range(0, data.shape[2] - self.__size[1] + 1, self.__stride) :
+                for i in range(0, data.shape[1] - self.__size[0] + 1, self.__stride) :
+                    res[k, i//self.__stride, j//self.__stride] = dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]].sum()/(float(self.__size[0]*self.__size[1]))
         return res
     
     def setStride(self,stride) :
@@ -398,29 +437,31 @@ class SimpleRNN :
         self.__outputSize = (self.__nbInternalUnits,None)
 
     def getNbParameter(self) :
-        # we have three square matrix of size (self.__inputSize[1],self.__inputSize[1])
+        # we have two square matrix of size (self.__inputSize[1],self.__inputSize[1]),
+        # one matrix of size (self.__outputSize[1],self.__inputSize[1])
         # and a vector of size self.__inputSize[1]
-        return self.__inputSize[1] * (1 + 3 * self.__inputSize[1])
+        return self.__inputSize[1] * (1 + 2 * self.__inputSize[1] + self.__outputSize[1])
 
     def setInputSize(self, inputSize) :
         # check if the input is usable by the algorithm
-        if inputSize > self.__nbInternalUnits :
+        if inputSize[1] > self.__nbInternalUnits :
             raise WrongDimention
         self.__inputSize = inputSize
         # if there is no size for the second dimention of the input, set a defaut one
         if self.__outputSize[1] == None :
-            self.__outputSize[1] = inputSize[1]
+            self.__outputSize = (self.__outputSize[0],inputSize[1])
 
     def getOutputSize(self) :
-        return self.__nbInternalUnits
+        return self.__outputSize
 
     def compute(self,data,param) :
+        vecTanh = np.vectorize(tanh)
         innerState = param[0:self.__inputSize[1]]
-        res = np.zeros(self.__nbInternalUnits,self.__inputSize[1])
+        res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
         # I reshape the list of parameters in three square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
         U = np.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        V = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
+        V = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
         W = np.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
         for i in range(self.__nbInternalUnits) :
             # we chose if there is an input or not
@@ -429,15 +470,15 @@ class SimpleRNN :
             else :
                 inputed = np.zeros(data.shape[1])
             # we update the inner state
-            innerState = tanh( np.dot(U,inputed) + np.dot(V,innerState))
+            innerState = vecTanh( np.dot(U,inputed) + np.dot(V,innerState))
             # we compute the output with the new inner state
             res[i,:] = softmax(np.dot(W,innerState))
         return res[-self.__outputSize[0]:,:]
 
-        def setOutputSize(self,outputSize) :
-            if outputSize[0] > self.__innerState :
-                raise WrongDimention
-            self.__outputSize = ouputSize
+    def setOutputSize(self,outputSize) :
+        if outputSize[0] > self.__nbInternalUnits :
+            raise WrongDimention
+        self.__outputSize = outputSize
 
 
 class LSTM :
@@ -449,37 +490,39 @@ class LSTM :
         self.__outputSize = (self.__nbInternalUnits,None)
 
     def getNbParameter(self) :
-        # we have nine square matrix of size (self.__inputSize[1],self.__inputSize[1])
+        # we have eight square matrix of size (self.__inputSize[1],self.__inputSize[1])
         # a matrix of size (self.__outputSize[1],self.__inputSize[1])
         # and a vector of size self.__inputSize[1]
         return self.__inputSize[1] * (1 + 8 * self.__inputSize[1] + self.__outputSize[1])
 
     def setInputSize(self, inputSize) :
         # check if the input is usable by the algorithm
-        if inputSize > self.__nbInternalUnits :
+        if inputSize[1] > self.__nbInternalUnits :
             raise WrongDimention
         self.__inputSize = inputSize
         # if there is no size for the second dimention of the input, set a defaut one
         if self.__outputSize[1] == None :
-            self.__outputSize[1] = inputSize[1]
+            self.__outputSize = (self.__outputSize[0],inputSize[1])
 
     def getOutputSize(self) :
-        return self.__nbInternalUnits
+        return self.__outputSize
 
     def compute(self,data,param) :
+        vecSig = np.vectorize(sigmoid)
+        vecTanh = np.vectorize(tanh)
         innerState = param[0:self.__inputSize[1]]
-        res = np.zeros(self.__nbInternalUnits,self.__inputSize[1])
+        res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
         # I reshape the list of parameters in nine square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
         Ui = np.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Vi = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        Uf = np.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 3 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        Vf = np.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        Uo = np.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        Vo = np.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        UnewMemory = np.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 7 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        VnewMemory = np.reshape(param[self.__inputSize[1] * (1 + 7*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        W = np.reshape(param[self.__inputSize[1] * (1 + 8*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1] + self.__outputSize[1])](self.__outputSize[1],self.__inputSize[1]))
+        Vi = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Uf = np.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 3 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vf = np.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Uo = np.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vo = np.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        UnewMemory = np.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 7 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        VnewMemory = np.reshape(param[self.__inputSize[1] * (1 + 7*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        W = np.reshape(param[self.__inputSize[1] * (1 + 8*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
         # at the begining, there is nothing in the memory
         memory = np.zeros(self.__inputSize[1])
         for i in range(self.__nbInternalUnits) :
@@ -489,20 +532,20 @@ class LSTM :
             else :
                 inputed = np.zeros(data.shape[1])
             # we update the inner state
-            inputGate = sigmoid(np.dot(Ui,inputed) + np.dot(Vi,innerState))
-            forgetGate = sigmoid(np.dot(Uf,inputed) + np.dot(Vf,innerState))
-            ouputGate = sigmoid(np.dot(Uo,inputed) + np.dot(Vo,innerState))
-            newMemory = tanh(np.dot(UnewMemory,inputed) + np.dot(VnewMemory,innerState))
-            memory = inputgate * newMemory + forgetGate * memory
-            innerState = ouputGate * tanh(memory)
+            inputGate = vecSig(np.dot(Ui,inputed) + np.dot(Vi,innerState))
+            forgetGate = vecSig(np.dot(Uf,inputed) + np.dot(Vf,innerState))
+            ouputGate = vecSig(np.dot(Uo,inputed) + np.dot(Vo,innerState))
+            newMemory = vecTanh(np.dot(UnewMemory,inputed) + np.dot(VnewMemory,innerState))
+            memory = inputGate * newMemory + forgetGate * memory
+            innerState = ouputGate * vecTanh(memory)
             # we compute the output with the new inner state
             res[i,:] = softmax(np.dot(W,innerState))
         return res[-self.__outputSize[0]:,:]
 
-        def setOutputSize(self,outputSize) :
-            if outputSize[0] > self.__innerState :
-                raise WrongDimention
-            self.__outputSize = ouputSize
+    def setOutputSize(self,outputSize) :
+        if outputSize[0] > self.__nbInternalUnits :
+            raise WrongDimention
+        self.__outputSize = outputSize
 
 class GRU :
     """a Gated Recurent Unit layer, an improved recurent neural network layer"""
@@ -516,32 +559,34 @@ class GRU :
         # we have six square matrix of size (self.__inputSize[1],self.__inputSize[1]),
         # a matrix of size (self.__outputSize[1],self.__inputSize[1])
         # and a vector of size self.__inputSize[1]
-        return self.__inputSize[1] * (1 + 6 * self.__inputSize[1] + outputSize[1])
+        return self.__inputSize[1] * (1 + 6 * self.__inputSize[1] + self.__outputSize[1])
 
     def setInputSize(self, inputSize) :
         # check if the input is usable by the algorithm
-        if inputSize > self.__nbInternalUnits :
+        if inputSize[1] > self.__nbInternalUnits :
             raise WrongDimention
         self.__inputSize = inputSize
         # if there is no size for the second dimention of the input, set a defaut one
         if self.__outputSize[1] == None :
-            self.__outputSize[1] = inputSize[1]
+            self.__outputSize = (self.__outputSize[0],inputSize[1])
 
     def getOutputSize(self) :
-        return self.__nbInternalUnits
+        return self.__outputSize
 
     def compute(self,data,param) :
+        vecSig = np.vectorize(sigmoid)
+        vecTanh = np.vectorize(tanh)
         innerState = param[0:self.__inputSize[1]]
-        res = np.zeros(seld.__nbInternalUnits,self.__outputSize[1])
+        res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
         # I reshape the list of parameters in seven square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
         Uz = np.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Vz = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        Ur = np.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 3 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        Vr = np.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        Ug = np.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        Vg = np.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])](self.__inputSize[1],self.__inputSize[1]))
-        W = np.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1] + self.__outputSize[1])](self.__outputSize[1],self.__inputSize[1]))
+        Vz = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Ur = np.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 3 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vr = np.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Ug = np.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vg = np.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        W = np.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
         # at the begining, there is nothing in the memory
         memory = np.zeros(self.__inputSize[1])
         for i in range(self.__nbInternalUnits) :
@@ -551,15 +596,15 @@ class GRU :
             else :
                 inputed = np.zeros(data.shape[1])
             # we update the inner state
-            z = sigmoid(np.dot(Uz,inputed) + np.dot(Vz,innerState))
-            r = sigmoid(np.dot(Ur,inputed) + np.dot(Vr,innerState))
-            g = tanh(np.dot(Ug,inputed) + np.dot(Wg,r*innerState))
-            innerState = z*g + (1 - f) * innerState
+            z = vecSig(np.dot(Uz,inputed) + np.dot(Vz,innerState))
+            r = vecSig(np.dot(Ur,inputed) + np.dot(Vr,innerState))
+            g = vecTanh(np.dot(Ug,inputed) + np.dot(Vg,r*innerState))
+            innerState = z*g + (1 - z) * innerState
             # we compute the output with the new inner state
             res[i,:] = softmax(np.dot(W,innerState))
         return res[-self.__outputSize[0]:,:]
     
     def setOutputSize(self,outputSize) :
-            if outputSize[0] > self.__innerState :
+            if outputSize[0] > self.__nbInternalUnits :
                 raise WrongDimention
-            self.__outputSize = ouputSize
+            self.__outputSize = outputSize
