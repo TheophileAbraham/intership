@@ -112,6 +112,7 @@ class Network :
 
     def compute(self,data,iflearning=False) :
         """compute the use of the neural network after the learning"""
+        tf.compat.v1.enable_eager_execution()
         # first, we check if the dimention of the data is right
         if (data.shape != self.__inputSize) :
             raise WrongDimention
