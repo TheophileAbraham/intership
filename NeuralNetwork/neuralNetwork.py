@@ -15,17 +15,16 @@ class UnusableType(Exception) :
 
 # activation functions
 def relu(z) :
-    return max(0,z)
+    return tf.nn.relu(z)
     
 def sigmoid(z) :
-    return 1/(1+math.exp(-z))
+    return tf.math.sigmoid(z)
 
 def tanh(z) :
-    return math.tanh(z)
+    return tf.math.tanhs(z)
 
 def softmax(z) :
-    expz = np.exp(z)
-    return expz/(expz.sum())
+    return tf.math.softmax(z)
 
 
 # utility functions
@@ -40,22 +39,23 @@ def convolution2D(data,kernel,stride=1,padding=0) :
     res = np.zeros((lenRes, widRes))
     if padding != 0 :
         dataPadded = np.zeros((data.shape[0] + padding*2, data.shape[1] + padding*2))
-        dataPadded[padding:(-1 * padding), padding:(-1 * padding)] = data
+        dataPadded[padding:(-1 * padding), padding:(-1 * padding)] = data.numpy()
+        dataPadded = tf.constant(dataPadded)
     else :
         dataPadded = data
     for j in range(0, dataPadded.shape[1] - widKernel + 1, stride) :
         for i in range(0, dataPadded.shape[0] - lenKernel + 1, stride) :
-            res[i//stride, j//stride] = (kernel * dataPadded[i: i + lenKernel, j: j + widKernel]).sum()
-    return res
+            res[i//stride, j//stride] = tf.reduce_sum((tf.math.multiply(kernel, dataPadded[i: i + lenKernel, j: j + widKernel])))
+    return tf.constant(res)
 
 def checkActivation(name) :
     """check if the name corespond to an existing activation function and return the right function"""
     if name == "relu" :
-        return np.vectorize(lambda z : relu(z))
+        return lambda z : relu(z)
     elif name == "sigmoid" :
-        return np.vectorize(lambda z : sigmoid(z))
+        return lambda z : sigmoid(z)
     elif name == "tanh" :
-        return np.vectorize(lambda z : tanh(z))
+        return lambda z : tanh(z)
     elif name == "softmax" :
         return lambda z : softmax(z)
     else :
@@ -65,7 +65,7 @@ def checkActivation(name) :
 # default score
 def noScore(restheo, rescomputed) :
     """the score used if no custom score has been inputed by the user"""
-    return (np.abs(restheo - rescomputed)).sum()
+    return tf.math.reduce_sum(tf.math.abs(tf.constant(restheo) - rescomputed))
 
 
 # definition of class to create a neural network
@@ -103,14 +103,14 @@ class Network :
             nbParameter = nbParameter + layer.getNbParameter()
         self.__nbParameter = nbParameter
         # optimisation of the parameters
-        tf.enable_eager_execution()
-        params = tf.Variable(np.random.randn(nbParameter),trainable=True)
+        tf.compat.v1.enable_eager_execution()
+        params = tf.Variable(np.random.randn(nbParameter))
         loss = lambda : self.loss(data,result,score,params)
         opt = tf.keras.optimizers.Adam(learning_rate = 0.1)
         opt.minimize(loss,[params])
-        #self.__params = params.eval(session=tf.compat.v1.Session())
+        self.__params = params
 
-    def compute(self,data) :
+    def compute(self,data,iflearning=False) :
         """compute the use of the neural network after the learning"""
         # first, we check if the dimention of the data is right
         if (data.shape != self.__inputSize) :
@@ -118,33 +118,34 @@ class Network :
         # for each layer, we give the inner data between the previous layer and the one we work on it
         # and the list of parameters of the neural network, amputed from their first parameters, in a
         # way that the first parameters of the given list is the parameters of the layer
+        dataTF = tf.constant(data)
         index = 0
         for layer in self.__layers :
-            data = layer.compute(data,self.__params[index:])
+            dataTF = layer.compute(dataTF,self.__params[index:index+layer.getNbParameter()])
             index = index + layer.getNbParameter()
-        return data
+        if iflearning :
+            return dataTF
+        else :
+            return dataTF.numpy()
     
     def loss(self,data,result,score,params) :
         """describe the loss needed for the optimisation"""
-        # convert params (tf.Tensor) into a numpy array
-        #self.__params = tf.Session().run(params)
-        self.__params = params.numpy()
         # calcul the mean of the score of each computation of one data and the score needed
-        res = 0
+        self.__params = params
+        res = tf.constant(0,dtype="double")
         n = len(result)
         if len(data.shape) == 2 :
             for i in range(n) :
-                res = res + score(result[i,:], self.compute(data[i,:]))/n
+                res = res + score(result[i,:], self.compute(data[i,:],iflearning=True))/n
         elif len(data.shape) == 3 :
             for i in range(n) :
-                res = res + score(result[i,:], self.compute(data[i,:,:]))/n
+                res = res + score(result[i,:], self.compute(data[i,:,:],iflearning=True))/n
         elif len(data.shape) == 4 :
             for i in range(n) :
-                res = res + score(result[i,:], self.compute(data[i,:,:,:]))/n
+                res = res + score(result[i,:], self.compute(data[i,:,:,:],iflearning=True))/n
         else :
             raise WrongDimentions
-        print(res)
-        return tf.constant(res)
+        return res
 
 
 # class that define a layer. Each class must have the getNbParameter() and compute(data,param) functions
@@ -173,11 +174,11 @@ class DenseLayer :
     
     def compute(self,data,param) :
         # construct the matrix representing the layer from the list of parameters
-        neuron = np.reshape(param[:(self.__sizeNeuron[0]*self.__sizeNeuron[1])],self.__sizeNeuron)
+        neuron = tf.reshape(param,self.__sizeNeuron)
         # compute the result before the activation
-        linearResult = np.dot(neuron,data)
+        linearResult = tf.reshape(tf.linalg.matmul(neuron,tf.reshape(data,[-1,1])),[-1])
         # compute the result and return it after the activation
-        return np.reshape(self.__activation(linearResult),(self.__sizeOutput))
+        return self.__activation(linearResult)
     
 
 class FlattenLayer :
@@ -197,7 +198,7 @@ class FlattenLayer :
         return res
     
     def compute(self,data,param) :
-        return np.reshape(data,-1)
+        return tf.reshape(data,[-1])
 
 
 class ResNetLayer :
@@ -261,7 +262,7 @@ class ConvLayer :
         for dimension in kernelSize :
             self.__nbParameter = self.__nbParameter * dimension
         # the kernel used in the convolution
-        self.__kernel = np.array([None])
+        self.__kernelInputed = False
         # the parameter of the convolution
         self.__stride = 1
         self.__padding = 0
@@ -280,13 +281,13 @@ class ConvLayer :
 
     def compute(self,data,param) :
         # check if the kernel was given by the user or it have to be found
-        if (self.__kernel == None).any() :
+        if not(self.__kernelInputed) :
             # if the kernel have to be found, we buil it from 
-            kernel = np.reshape(param[:self.__nbParameter], self.__kernelSize)
+            kernel = tf.reshape(param, self.__kernelSize)
         else :
             # otherwise, we take the given kernel
             kernel = self.__kernel
-        linearRes = np.zeros((kernel.shape[0],(data.shape[1] + 2*self.__padding - kernel.shape[2])//self.__stride + 1,(data.shape[2] + 2*self.__padding - kernel.shape[3])//self.__stride + 1))
+        linearRes = np.zeros((self.__kernelSize[0],(data.shape[1] + 2*self.__padding - self.__kernelSize[2])//self.__stride + 1,(data.shape[2] + 2*self.__padding - self.__kernelSize[3])//self.__stride + 1))
         # for each output channel, we're doing the 3D convolution
         for k in range(kernel.shape[0]) :
             # for each input channel, we're doing the 2D convolution and we add the results
@@ -308,14 +309,17 @@ class ConvLayer :
         if (len(kernel.shape) == 2) :
             self.__kernel = np.zeros((1,1,kernel.shape[0],kernel.shape[1]))
             self.__kernel[0,0:,:] = kernel
+            self.__kernel = tf.constant(self.__kernel,dtype="double")
         elif (len(kernel.shape) == 3) :
             self.__kernel = np.zeros((1,kernel.shape[0],kernel.shape[1],kernel.shape[2]))
             self.__kernel[0,:,:,:] = kernel
+            self.__kernel = tf.constant(self.__kernel,dtype="double")
         elif (len(kernel.shape) == 4) :
-            self.__kernel = kernel
+            self.__kernel = tf.constant(kernel,dtype="double")
         else :
             raise WrongDimention
         self.__nbParameter = 0
+        self.__kernelInputed = True
     
     def setStride(self,stride) :
         """fonction to modify the stride"""
@@ -353,11 +357,12 @@ class MaxPooling :
         return (self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1)
     
     def compute(self,data,param) :
-        res = np.zeros((data.shape[0],(data.shape[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(data.shape[2] + 2*self.__padding - self.__size[1])//self.__stride + 1))
+        res = np.zeros((self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1))
         # padding the data
         if self.__padding != 0 :
-            dataPadded = np.zeros((data.shape[1] + self.__padding*2, data.shape[2] + self.__padding*2))
-            dataPadded[:,self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data
+            dataPadded = np.zeros((self.__inputSize[1] + self.__padding*2, self.__inputSize[2] + self.__padding*2))
+            dataPadded[:,self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data.numpy()
+            dataPadded = tf.constant(dataPadded)
         else :
             dataPadded = data
         # k is the number of current channel we are working on
@@ -365,8 +370,8 @@ class MaxPooling :
             # (i,j) is the coordinates of the extracted matrix from data we will perform the maximum
             for j in range(0, data.shape[2] - self.__size[1] + 1, self.__stride) :
                 for i in range(0, data.shape[1] - self.__size[0] + 1, self.__stride) :
-                    res[k, i//self.__stride, j//self.__stride] = dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]].max()
-        return res
+                    res[k, i//self.__stride, j//self.__stride:j//self.__stride+1] = tf.reduce_max(dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]])
+        return tf.constant(res)
     
     def setStride(self,stride) :
         """fonction to modify the stride"""
@@ -404,11 +409,12 @@ class AveragePooling :
         return (self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1)
 
     def compute(self,data,param) :
-        res = np.zeros((data.shape[0],(data.shape[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(data.shape[2] + 2*self.__padding - self.__size[1])//self.__stride + 1))
+        res = np.zeros((self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1))
         # padding the data
         if self.__padding != 0 :
-            dataPadded = np.zeros((data.shape[1] + self.__padding*2, data.shape[2] + self.__padding*2))
-            dataPadded[:,self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data
+            dataPadded = np.zeros((self.__sizeInput[1] + self.__padding*2, self.__sizeInput[2] + self.__padding*2))
+            dataPadded[:,self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data.numpy()
+            dataPadded = tf.constant(dataPadded)
         else :
             dataPadded = data
         # k is the number of current channel we are working on
@@ -416,8 +422,8 @@ class AveragePooling :
             # (i,j) is the coordinates of the extracted matrix from data we will perform the average
             for j in range(0, data.shape[2] - self.__size[1] + 1, self.__stride) :
                 for i in range(0, data.shape[1] - self.__size[0] + 1, self.__stride) :
-                    res[k, i//self.__stride, j//self.__stride] = dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]].sum()/(float(self.__size[0]*self.__size[1]))
-        return res
+                    res[k, i//self.__stride, j//self.__stride] = tf.reduce_mean(dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]])
+        return tf.constant(res)
     
     def setStride(self,stride) :
         """fonction to modify the stride"""
@@ -455,25 +461,24 @@ class SimpleRNN :
         return self.__outputSize
 
     def compute(self,data,param) :
-        vecTanh = np.vectorize(tanh)
-        innerState = param[0:self.__inputSize[1]]
+        innerState = tf.reshape(param[0:self.__inputSize[1]],(-1,1))
         res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
         # I reshape the list of parameters in three square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
-        U = np.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        V = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        W = np.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
+        U = tf.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        V = tf.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        W = tf.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
         for i in range(self.__nbInternalUnits) :
             # we chose if there is an input or not
+            inputed = np.zeros((self.__inputSize[1],1))
             if i<data.shape[0] :
-                inputed = data[i,:]
-            else :
-                inputed = np.zeros(data.shape[1])
+                inputed[:,0] = (data[i,:]).numpy()
+            inputed = tf.constant(inputed,dtype="double")
             # we update the inner state
-            innerState = vecTanh( np.dot(U,inputed) + np.dot(V,innerState))
+            innerState = tf.math.tanh( tf.matmul(U,inputed) + tf.matmul(V,innerState))
             # we compute the output with the new inner state
-            res[i,:] = softmax(np.dot(W,innerState))
-        return res[-self.__outputSize[0]:,:]
+            res[i,:] = np.reshape((tf.math.softmax(np.dot(W,innerState))).numpy(),(-1))
+        return tf.constant(res[-self.__outputSize[0]:,:])
 
     def setOutputSize(self,outputSize) :
         if outputSize[0] > self.__nbInternalUnits :
@@ -508,39 +513,37 @@ class LSTM :
         return self.__outputSize
 
     def compute(self,data,param) :
-        vecSig = np.vectorize(sigmoid)
-        vecTanh = np.vectorize(tanh)
-        innerState = param[0:self.__inputSize[1]]
+        innerState = tf.reshape(param[0:self.__inputSize[1]],(-1,1))
         res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
         # I reshape the list of parameters in nine square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
-        Ui = np.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Vi = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Uf = np.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 3 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Vf = np.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Uo = np.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Vo = np.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Ui = tf.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vi = tf.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Uf = tf.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 3 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vf = tf.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Uo = tf.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vo = tf.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
         UnewMemory = np.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 7 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
         VnewMemory = np.reshape(param[self.__inputSize[1] * (1 + 7*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
         W = np.reshape(param[self.__inputSize[1] * (1 + 8*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
         # at the begining, there is nothing in the memory
-        memory = np.zeros(self.__inputSize[1])
+        memory = np.zeros((self.__inputSize[1],1))
         for i in range(self.__nbInternalUnits) :
             # we chose if there is an input or not
+            inputed = np.zeros((self.__inputSize[1],1))
             if i<data.shape[0] :
-                inputed = data[i,:]
-            else :
-                inputed = np.zeros(data.shape[1])
+                inputed[:,0] = data[i,:].numpy()
+            inputed = tf.constant(inputed,dtype="double")
             # we update the inner state
-            inputGate = vecSig(np.dot(Ui,inputed) + np.dot(Vi,innerState))
-            forgetGate = vecSig(np.dot(Uf,inputed) + np.dot(Vf,innerState))
-            ouputGate = vecSig(np.dot(Uo,inputed) + np.dot(Vo,innerState))
-            newMemory = vecTanh(np.dot(UnewMemory,inputed) + np.dot(VnewMemory,innerState))
-            memory = inputGate * newMemory + forgetGate * memory
-            innerState = ouputGate * vecTanh(memory)
+            inputGate = tf.math.sigmoid(tf.matmul(Ui,inputed) + tf.matmul(Vi,innerState))
+            forgetGate = tf.math.sigmoid(tf.matmul(Uf,inputed) + tf.matmul(Vf,innerState))
+            outputGate = tf.math.sigmoid(tf.matmul(Uo,inputed) + tf.matmul(Vo,innerState))
+            newMemory = tf.math.tanh(tf.matmul(UnewMemory,inputed) + tf.matmul(VnewMemory,innerState))
+            memory = tf.math.multiply(inputGate, newMemory) + tf.math.multiply(forgetGate, memory)
+            innerState = tf.math.multiply(outputGate, tf.tanh(memory))
             # we compute the output with the new inner state
-            res[i,:] = softmax(np.dot(W,innerState))
-        return res[-self.__outputSize[0]:,:]
+            res[i,:] = np.reshape((softmax(tf.matmul(W,innerState))).numpy(),(-1))
+        return tf.constant(res[-self.__outputSize[0]:,:])
 
     def setOutputSize(self,outputSize) :
         if outputSize[0] > self.__nbInternalUnits :
@@ -574,35 +577,33 @@ class GRU :
         return self.__outputSize
 
     def compute(self,data,param) :
-        vecSig = np.vectorize(sigmoid)
-        vecTanh = np.vectorize(tanh)
-        innerState = param[0:self.__inputSize[1]]
+        innerState = tf.reshape(param[0:self.__inputSize[1]],(-1,1))
         res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
         # I reshape the list of parameters in seven square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
-        Uz = np.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Vz = np.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Ur = np.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 3 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Vr = np.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Ug = np.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        Vg = np.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        W = np.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
+        Uz = tf.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vz = tf.reshape(param[self.__inputSize[1] * (1 + self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Ur = tf.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 3 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vr = tf.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Ug = tf.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        Vg = tf.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        W = tf.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
         # at the begining, there is nothing in the memory
-        memory = np.zeros(self.__inputSize[1])
+        memory = tf.zeros(self.__inputSize[1])
         for i in range(self.__nbInternalUnits) :
             # we chose if there is an input or not
+            inputed = np.zeros((self.__inputSize[1],1))
             if i<data.shape[0] :
-                inputed = data[i,:]
-            else :
-                inputed = np.zeros(data.shape[1])
+                inputed[:,0] = data[i,:].numpy()
+            inputed = tf.constant(inputed,dtype="double")
             # we update the inner state
-            z = vecSig(np.dot(Uz,inputed) + np.dot(Vz,innerState))
-            r = vecSig(np.dot(Ur,inputed) + np.dot(Vr,innerState))
-            g = vecTanh(np.dot(Ug,inputed) + np.dot(Vg,r*innerState))
-            innerState = z*g + (1 - z) * innerState
+            z = tf.math.sigmoid(tf.matmul(Uz,inputed) + tf.matmul(Vz,innerState))
+            r = tf.math.sigmoid(tf.matmul(Ur,inputed) + tf.matmul(Vr,innerState))
+            g = tf.math.tanh(tf.matmul(Ug,inputed) + tf.matmul(Vg,tf.math.multiply(r,innerState)))
+            innerState = tf.math.multiply(z,g) + tf.multiply((1 - z), innerState)
             # we compute the output with the new inner state
-            res[i,:] = softmax(np.dot(W,innerState))
-        return res[-self.__outputSize[0]:,:]
+            res[i,:] = np.reshape((tf.math.softmax(tf.matmul(W,innerState))).numpy(),(-1))
+        return tf.constant(res[-self.__outputSize[0]:,:])
     
     def setOutputSize(self,outputSize) :
             if outputSize[0] > self.__nbInternalUnits :
