@@ -35,7 +35,7 @@ classifier.add(layer6)
 classifier.add(layer7)
 classifier.add(layer8)
 
-classifier.learn(data_train[:10,:,:,:],label_train[:10,:])
+classifier.learn(data_train[:,:,:,:],label_train[:,:])
 
 # for i in range(data_test.shape[0]) :
 for i in range(Y_test[0]) :
