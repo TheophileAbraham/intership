@@ -147,6 +147,24 @@ class Network :
         else :
             raise WrongDimentions
         return res
+    
+    def saveParameters(self, fileName) :
+        file = open(fileName,"w")
+        string = str(self.__params[0])
+        for i in range(1,self.__nbParameter) :
+            string = string + "\n" + str(self.__params[i])
+        file.write(string)
+        file.close()
+    
+    def loadParameters(self, fileName) :
+        file = open(fileName,"r")
+        string = file.read()
+        file.close()
+        paramsStr = string.split("\n")
+        paramsFloat
+        for param in params :
+            paramsFloat = paramsFloat + [float(param)]
+        self.__params = tf.Variable(paramsFloat,dtype="double")
 
 
 # class that define a layer. Each class must have the getNbParameter() and compute(data,param) functions
