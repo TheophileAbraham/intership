@@ -44,6 +44,7 @@ def convolution2D(data,kernel,stride=1,padding=0) :
         dataPadded = data
     for j in range(0, dataPadded.shape[1] - widKernel + 1, stride) :
         for i in range(0, dataPadded.shape[0] - lenKernel + 1, stride) :
+            # Tensor doesn't accept term assignment so I have to do a list of the term and concatenante and reshape it for the same operation
             res.append(tf.reshape(tf.reduce_sum((tf.math.multiply(kernel, dataPadded[i: i + lenKernel, j: j + widKernel]))),(1,1)))
     return tf.transpose(tf.reshape(tf.concat(res,0),(widRes,lenRes)))
 
@@ -123,6 +124,7 @@ class Network :
         for layer in self.__layers :
             dataTF = layer.compute(dataTF,self.__params[index:index+layer.getNbParameter()])
             index = index + layer.getNbParameter()
+        # if the program is learning, compute return a tensor. If the user launch it, it return a numpy array, with same information as the tensor
         if iflearning :
             return dataTF
         else :
@@ -148,6 +150,7 @@ class Network :
         return res
     
     def saveParameters(self, fileName) :
+        # save the parameters on a file, in order to load it from an another session
         file = open(fileName,"w")
         string = str(self.__params[0])
         for i in range(1,self.__nbParameter) :
@@ -156,6 +159,7 @@ class Network :
         file.close()
     
     def loadParameters(self, fileName) :
+        # load the parameters on a file, save from an another session
         file = open(fileName,"r")
         string = file.read()
         file.close()
@@ -179,6 +183,7 @@ class DenseLayer :
         self.__activation = checkActivation(activation)
     
     def getNbParameter(self) :
+        # just one matrix of size (self.__sizeNeuron[0], self.__sizeNeuron[1])
         return self.__sizeNeuron[0] * self.__sizeNeuron[1]
     
     def setInputSize(self,inputSize) :
@@ -201,10 +206,13 @@ class DenseLayer :
     
 
 class FlattenLayer :
+    """layer that vectorize the data"""
     def __init(self) :
+        # there is nothing to initialize
         pass
 
     def getNbParameter(self) :
+        # this layer doesn't take any parameter
         return 0
     
     def setInputSize(self, inputSize) :
@@ -310,6 +318,7 @@ class ConvLayer :
         # for each output channel, we're doing the 3D convolution
         for k in range(kernel.shape[0]) :
             # for each input channel, we're doing the 2D convolution and we add the results
+            # tensor doesn't accept term assignment, so I have to concatenate and reshape the result in order to do a term assignment
             linearResChannel = tf.zeros((1,(self.__inputSize[1] + 2*self.__padding - self.__kernelSize[2])/self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__kernelSize[3])/self.__stride + 1),"double")
             for c in range(kernel.shape[1]) :
                 linearResChannel = linearResChannel + tf.reshape(convolution2D(data[c,:,:],kernel[k,c,:,:],self.__stride,self.__padding),(1,(self.__inputSize[1] + 2*self.__padding - self.__kernelSize[2])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__kernelSize[3])//self.__stride + 1))
@@ -319,6 +328,7 @@ class ConvLayer :
 
     def setKernel(self,kernel) :
         """fonction to set the kernel"""
+        # check if the kernel has the right dimention
         j = 0
         for i in range(4-len(kernel.shape),4) :
             if kernel.shape[j] != self.__kernelSize[i] :
@@ -327,6 +337,7 @@ class ConvLayer :
         for i in self.__kernelSize[:4-len(kernel.shape)] :
             if i != 1 :
                 raise WrongDimention
+        # transform the inputed kernel into a 4 dimention tensor
         if (len(kernel.shape) == 2) :
             self.__kernel = np.zeros((1,1,kernel.shape[0],kernel.shape[1]))
             self.__kernel[0,0:,:] = kernel
@@ -388,6 +399,7 @@ class MaxPooling :
         # k is the number of current channel we are working on
         for k in range(data.shape[0]) :
             # (i,j) is the coordinates of the extracted matrix from data we will perform the maximum
+            # tensor doesn't accept term assignment, so I have to concatenate and reshape the result in order to do a term assignment
             resChannel = []
             for j in range(0, data.shape[2] - self.__size[1] + 1, self.__stride) :
                 for i in range(0, data.shape[1] - self.__size[0] + 1, self.__stride) :
@@ -441,6 +453,7 @@ class AveragePooling :
         # k is the number of current channel we are working on
         for k in range(data.shape[0]) :
             # (i,j) is the coordinates of the extracted matrix from data we will perform the maximum
+            # tensor doesn't accept term assignment, so I have to concatenate and reshape the result in order to do a term assignment
             resChannel = []
             for j in range(0, data.shape[2] - self.__size[1] + 1, self.__stride) :
                 for i in range(0, data.shape[1] - self.__size[0] + 1, self.__stride) :
@@ -493,13 +506,14 @@ class SimpleRNN :
         W = tf.reshape(param[self.__inputSize[1] * (1 + 2*self.__inputSize[1]):self.__inputSize[1] * (1 + 2 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
         for i in range(self.__nbInternalUnits) :
             # we chose if there is an input or not
-            inputed = np.zeros((self.__inputSize[1],1))
             if i<data.shape[0] :
-                inputed[:,0] = (data[i,:]).numpy()
-            inputed = tf.constant(inputed,dtype="double")
+                inputed = tf.reshape((data[i,:]),(-1,1))
+            else :
+                inputed = tf.zeros((self.__inputSize[1],1))
             # we update the inner state
             innerState = tf.math.tanh( tf.matmul(U,inputed) + tf.matmul(V,innerState))
             # we compute the output with the new inner state
+            # tensor doesn't accept term assignment, so I have to concatenate and reshape the result in order to do a term assignment
             res.append(tf.reshape(tf.math.softmax(np.dot(W,innerState)),(1,-1)))
         returned = tf.reshape(tf.concat(res,1),(self.__nbInternalUnits,self.__outputSize[1]))
         return returned[-self.__outputSize[0]:,:]
@@ -547,17 +561,17 @@ class LSTM :
         Vf = tf.reshape(param[self.__inputSize[1] * (1 + 3*self.__inputSize[1]):self.__inputSize[1] * (1 + 4 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
         Uo = tf.reshape(param[self.__inputSize[1] * (1 + 4*self.__inputSize[1]):self.__inputSize[1] * (1 + 5 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
         Vo = tf.reshape(param[self.__inputSize[1] * (1 + 5*self.__inputSize[1]):self.__inputSize[1] * (1 + 6 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        UnewMemory = np.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 7 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        VnewMemory = np.reshape(param[self.__inputSize[1] * (1 + 7*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
-        W = np.reshape(param[self.__inputSize[1] * (1 + 8*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
+        UnewMemory = tf.reshape(param[self.__inputSize[1] * (1 + 6*self.__inputSize[1]):self.__inputSize[1] * (1 + 7 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        VnewMemory = tf.reshape(param[self.__inputSize[1] * (1 + 7*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
+        W = tf.reshape(param[self.__inputSize[1] * (1 + 8*self.__inputSize[1]):self.__inputSize[1] * (1 + 8 * self.__inputSize[1] + self.__outputSize[1])],(self.__outputSize[1],self.__inputSize[1]))
         # at the begining, there is nothing in the memory
-        memory = np.zeros((self.__inputSize[1],1))
+        memory = tf.zeros((self.__inputSize[1],1))
         for i in range(self.__nbInternalUnits) :
             # we chose if there is an input or not
-            inputed = np.zeros((self.__inputSize[1],1))
             if i<data.shape[0] :
-                inputed[:,0] = data[i,:].numpy()
-            inputed = tf.constant(inputed,dtype="double")
+                inputed = tf.reshape((data[i,:]),(-1,1))
+            else :
+                inputed = tf.zeros((self.__inputSize[1],1))
             # we update the inner state
             inputGate = tf.math.sigmoid(tf.matmul(Ui,inputed) + tf.matmul(Vi,innerState))
             forgetGate = tf.math.sigmoid(tf.matmul(Uf,inputed) + tf.matmul(Vf,innerState))
@@ -566,6 +580,7 @@ class LSTM :
             memory = tf.math.multiply(inputGate, newMemory) + tf.math.multiply(forgetGate, memory)
             innerState = tf.math.multiply(outputGate, tf.tanh(memory))
             # we compute the output with the new inner state
+            # tensor doesn't accept term assignment, so I have to concatenate and reshape the result in order to do a term assignment
             res.append(tf.reshape(tf.math.softmax(np.dot(W,innerState)),(1,-1)))
         returned = tf.reshape(tf.concat(res,1),(self.__nbInternalUnits,self.__outputSize[1]))
         return returned[-self.__outputSize[0]:,:]
@@ -617,16 +632,17 @@ class GRU :
         memory = tf.zeros(self.__inputSize[1])
         for i in range(self.__nbInternalUnits) :
             # we chose if there is an input or not
-            inputed = np.zeros((self.__inputSize[1],1))
             if i<data.shape[0] :
-                inputed[:,0] = data[i,:].numpy()
-            inputed = tf.constant(inputed,dtype="double")
+                inputed = tf.reshape((data[i,:]),(-1,1))
+            else :
+                inputed = tf.zeros((self.__inputSize[1],1))
             # we update the inner state
             z = tf.math.sigmoid(tf.matmul(Uz,inputed) + tf.matmul(Vz,innerState))
             r = tf.math.sigmoid(tf.matmul(Ur,inputed) + tf.matmul(Vr,innerState))
             g = tf.math.tanh(tf.matmul(Ug,inputed) + tf.matmul(Vg,tf.math.multiply(r,innerState)))
             innerState = tf.math.multiply(z,g) + tf.multiply((1 - z), innerState)
             # we compute the output with the new inner state
+            # tensor doesn't accept term assignment, so I have to concatenate and reshape the result in order to do a term assignment
             res.append(tf.reshape(tf.math.softmax(np.dot(W,innerState)),(1,-1)))
         returned = tf.reshape(tf.concat(res,1),(self.__nbInternalUnits,self.__outputSize[1]))
         return returned[-self.__outputSize[0]:,:]
