@@ -34,19 +34,18 @@ def convolution2D(data,kernel,stride=1,padding=0) :
     widKernel = kernel.shape[1] 
     lenData = data.shape[0] 
     widData = data.shape[1]
-    lenRes = int(((lenData - lenKernel + 2 * padding) / stride) + 1)
-    widRes = int(((widData - widKernel + 2 * padding) / stride) + 1)
-    res = np.zeros((lenRes, widRes))
+    lenRes = int(((lenData - lenKernel + 2 * padding) // stride) + 1)
+    widRes = int(((widData - widKernel + 2 * padding) // stride) + 1)
+    res = []
     if padding != 0 :
-        dataPadded = np.zeros((data.shape[0] + padding*2, data.shape[1] + padding*2))
-        dataPadded[padding:(-1 * padding), padding:(-1 * padding)] = data.numpy()
-        dataPadded = tf.constant(dataPadded)
+        dataPadded = tf.concat([tf.zeros((padding,widData),"double"),data,tf.zeros((padding,widData),"double")],0)
+        dataPadded = tf.concat([tf.zeros((lenData + 2*padding,padding),"double"),dataPadded,tf.zeros((lenData + 2*padding,padding),"double")],1)
     else :
         dataPadded = data
     for j in range(0, dataPadded.shape[1] - widKernel + 1, stride) :
         for i in range(0, dataPadded.shape[0] - lenKernel + 1, stride) :
-            res[i//stride, j//stride] = tf.reduce_sum((tf.math.multiply(kernel, dataPadded[i: i + lenKernel, j: j + widKernel])))
-    return tf.constant(res)
+            res.append(tf.reshape(tf.reduce_sum((tf.math.multiply(kernel, dataPadded[i: i + lenKernel, j: j + widKernel]))),(1,1)))
+    return tf.transpose(tf.reshape(tf.concat(res,0),(widRes,lenRes)))
 
 def checkActivation(name) :
     """check if the name corespond to an existing activation function and return the right function"""
@@ -165,6 +164,7 @@ class Network :
         for param in params :
             paramsFloat = paramsFloat + [float(param)]
         self.__params = tf.Variable(paramsFloat,dtype="double")
+
 
 
 # class that define a layer. Each class must have the getNbParameter() and compute(data,param) functions
@@ -306,14 +306,16 @@ class ConvLayer :
         else :
             # otherwise, we take the given kernel
             kernel = self.__kernel
-        linearRes = np.zeros((self.__kernelSize[0],(data.shape[1] + 2*self.__padding - self.__kernelSize[2])//self.__stride + 1,(data.shape[2] + 2*self.__padding - self.__kernelSize[3])//self.__stride + 1))
+        linearRes = []
         # for each output channel, we're doing the 3D convolution
         for k in range(kernel.shape[0]) :
             # for each input channel, we're doing the 2D convolution and we add the results
+            linearResChannel = tf.zeros((1,(self.__inputSize[1] + 2*self.__padding - self.__kernelSize[2])/self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__kernelSize[3])/self.__stride + 1),"double")
             for c in range(kernel.shape[1]) :
-                linearRes[k,:,:] = linearRes[k,:,:] + convolution2D(data[c,:,:],kernel[k,c,:,:],self.__stride,self.__padding)
+                linearResChannel = linearResChannel + tf.reshape(convolution2D(data[c,:,:],kernel[k,c,:,:],self.__stride,self.__padding),(1,(self.__inputSize[1] + 2*self.__padding - self.__kernelSize[2])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__kernelSize[3])//self.__stride + 1))
+            linearRes.append(linearResChannel)
         # we compute the result with the activation function before give it to the following layers
-        return self.__activation(linearRes)
+        return self.__activation(tf.concat(linearRes,0))
 
     def setKernel(self,kernel) :
         """fonction to set the kernel"""
@@ -376,21 +378,22 @@ class MaxPooling :
         return (self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1)
     
     def compute(self,data,param) :
-        res = np.zeros((self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1))
+        res = []
         # padding the data
         if self.__padding != 0 :
-            dataPadded = np.zeros((self.__inputSize[1] + self.__padding*2, self.__inputSize[2] + self.__padding*2))
-            dataPadded[:,self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data.numpy()
-            dataPadded = tf.constant(dataPadded)
+            dataPadded = tf.concat([tf.zeros((padding,widData),"double"),data,tf.zeros((padding,widData),"double")],0)
+            dataPadded = tf.concat([tf.zeros((lenData + 2*padding,padding),"double"),dataPadded,tf.zeros((lenData + 2*padding,padding),"double")],1)
         else :
             dataPadded = data
         # k is the number of current channel we are working on
         for k in range(data.shape[0]) :
             # (i,j) is the coordinates of the extracted matrix from data we will perform the maximum
+            resChannel = []
             for j in range(0, data.shape[2] - self.__size[1] + 1, self.__stride) :
                 for i in range(0, data.shape[1] - self.__size[0] + 1, self.__stride) :
-                    res[k, i//self.__stride, j//self.__stride:j//self.__stride+1] = tf.reduce_max(dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]])
-        return tf.constant(res)
+                    resChannel.append(tf.reshape(tf.reduce_max(dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]]),(1,1)))
+            res.append(tf.reshape(tf.transpose(tf.reshape(tf.concat(resChannel,0),((self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1,(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1))),(1,(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1)))
+        return tf.concat(res,0)
     
     def setStride(self,stride) :
         """fonction to modify the stride"""
@@ -428,21 +431,22 @@ class AveragePooling :
         return (self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1)
 
     def compute(self,data,param) :
-        res = np.zeros((self.__inputSize[0],(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1))
+        res = []
         # padding the data
         if self.__padding != 0 :
-            dataPadded = np.zeros((self.__sizeInput[1] + self.__padding*2, self.__sizeInput[2] + self.__padding*2))
-            dataPadded[:,self.__padding:(-1 * self.__padding), self.__padding:(-1 * self.__padding)] = data.numpy()
-            dataPadded = tf.constant(dataPadded)
+            dataPadded = tf.concat([tf.zeros((padding,widData),"double"),data,tf.zeros((padding,widData),"double")],0)
+            dataPadded = tf.concat([tf.zeros((lenData + 2*padding,padding),"double"),dataPadded,tf.zeros((lenData + 2*padding,padding),"double")],1)
         else :
             dataPadded = data
         # k is the number of current channel we are working on
         for k in range(data.shape[0]) :
-            # (i,j) is the coordinates of the extracted matrix from data we will perform the average
+            # (i,j) is the coordinates of the extracted matrix from data we will perform the maximum
+            resChannel = []
             for j in range(0, data.shape[2] - self.__size[1] + 1, self.__stride) :
                 for i in range(0, data.shape[1] - self.__size[0] + 1, self.__stride) :
-                    res[k, i//self.__stride, j//self.__stride] = tf.reduce_mean(dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]])
-        return tf.constant(res)
+                    resChannel.append(tf.reshape(tf.reduce_mean(dataPadded[k,i:i+self.__size[0],j:j+self.__size[1]]),(1,1)))
+            res.append(tf.reshape(tf.transpose(tf.reshape(tf.concat(resChannel,0),((self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1,(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1))),(1,(self.__inputSize[1] + 2*self.__padding - self.__size[0])//self.__stride + 1,(self.__inputSize[2] + 2*self.__padding - self.__size[1])//self.__stride + 1)))
+        return tf.concat(res,0)
     
     def setStride(self,stride) :
         """fonction to modify the stride"""
@@ -481,7 +485,7 @@ class SimpleRNN :
 
     def compute(self,data,param) :
         innerState = tf.reshape(param[0:self.__inputSize[1]],(-1,1))
-        res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
+        res = []
         # I reshape the list of parameters in three square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
         U = tf.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
@@ -496,8 +500,9 @@ class SimpleRNN :
             # we update the inner state
             innerState = tf.math.tanh( tf.matmul(U,inputed) + tf.matmul(V,innerState))
             # we compute the output with the new inner state
-            res[i,:] = np.reshape((tf.math.softmax(np.dot(W,innerState))).numpy(),(-1))
-        return tf.constant(res[-self.__outputSize[0]:,:])
+            res.append(tf.reshape(tf.math.softmax(np.dot(W,innerState)),(1,-1)))
+        returned = tf.reshape(tf.concat(res,1),(self.__nbInternalUnits,self.__outputSize[1]))
+        return returned[-self.__outputSize[0]:,:]
 
     def setOutputSize(self,outputSize) :
         if outputSize[0] > self.__nbInternalUnits :
@@ -533,7 +538,7 @@ class LSTM :
 
     def compute(self,data,param) :
         innerState = tf.reshape(param[0:self.__inputSize[1]],(-1,1))
-        res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
+        res = []
         # I reshape the list of parameters in nine square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
         Ui = tf.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
@@ -561,8 +566,9 @@ class LSTM :
             memory = tf.math.multiply(inputGate, newMemory) + tf.math.multiply(forgetGate, memory)
             innerState = tf.math.multiply(outputGate, tf.tanh(memory))
             # we compute the output with the new inner state
-            res[i,:] = np.reshape((softmax(tf.matmul(W,innerState))).numpy(),(-1))
-        return tf.constant(res[-self.__outputSize[0]:,:])
+            res.append(tf.reshape(tf.math.softmax(np.dot(W,innerState)),(1,-1)))
+        returned = tf.reshape(tf.concat(res,1),(self.__nbInternalUnits,self.__outputSize[1]))
+        return returned[-self.__outputSize[0]:,:]
 
     def setOutputSize(self,outputSize) :
         if outputSize[0] > self.__nbInternalUnits :
@@ -597,7 +603,7 @@ class GRU :
 
     def compute(self,data,param) :
         innerState = tf.reshape(param[0:self.__inputSize[1]],(-1,1))
-        res = np.zeros((self.__nbInternalUnits,self.__outputSize[1]))
+        res = []
         # I reshape the list of parameters in seven square matrix. I arbitrarily choose here to set the inner dimention and the output dimention to the same size
         # of each data
         Uz = tf.reshape(param[self.__inputSize[1]:self.__inputSize[1] * (1 + self.__inputSize[1])],(self.__inputSize[1],self.__inputSize[1]))
@@ -621,8 +627,9 @@ class GRU :
             g = tf.math.tanh(tf.matmul(Ug,inputed) + tf.matmul(Vg,tf.math.multiply(r,innerState)))
             innerState = tf.math.multiply(z,g) + tf.multiply((1 - z), innerState)
             # we compute the output with the new inner state
-            res[i,:] = np.reshape((tf.math.softmax(tf.matmul(W,innerState))).numpy(),(-1))
-        return tf.constant(res[-self.__outputSize[0]:,:])
+            res.append(tf.reshape(tf.math.softmax(np.dot(W,innerState)),(1,-1)))
+        returned = tf.reshape(tf.concat(res,1),(self.__nbInternalUnits,self.__outputSize[1]))
+        return returned[-self.__outputSize[0]:,:]
     
     def setOutputSize(self,outputSize) :
             if outputSize[0] > self.__nbInternalUnits :
