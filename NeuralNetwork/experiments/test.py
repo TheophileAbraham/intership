@@ -24,12 +24,14 @@ C = np.array(
     ,[ 3, 8, 8, 5, 7, 4]
     ,[ 7, 9, 6, 4, 6, 9]])
 
+# we test the convolution with no padding and a stride of 1
 D = NeuralNetwork.convolution2D(tf.constant(A,dtype="double"),tf.constant(B,dtype="double"))
 test = ((D.numpy()) == np.array(
     [[ 1, 1]
     ,[ 1, 0]]))
 assert((test.all()))
 
+# we test the convolution with a padding of and a stride of 1
 D = NeuralNetwork.convolution2D(tf.constant(A,dtype="double"),tf.constant(B,dtype="double"),1,1)
 test = ((D.numpy()) == np.array(
     [[ 0, 0, 1, 2]
@@ -38,6 +40,7 @@ test = ((D.numpy()) == np.array(
     ,[-3,-4,-3,-1]]))
 assert(test.all())
 
+# we test the convolution with no padding and a stride of 2
 D = NeuralNetwork.convolution2D(tf.constant(C,dtype="double"),tf.constant(B,dtype="double"),2,0)
 test = ((D.numpy()) == np.array(
     [[10, 7]
@@ -57,8 +60,10 @@ param = np.array([4,5,6,7,8,9,10,11,-12,13,14,15,16,17,18,19,20,21,22,23,24,25,2
 
 layer.setInputSize(len(data))
 
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == len(param))
 
+# we test that the layer perform the right operation
 test = (layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype="double")).numpy() == np.array([26,0,58]))
 assert(test.all())
 
@@ -81,18 +86,23 @@ param = np.array([-1,-2,-1,0,0,0,1,2,1,-1,-2,-1,0,0,0,1,2,1])
 
 layer.setInputSize(data.shape)
 
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == len(param))
 
+# we test that the layer perform the right operation
 test = (layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype="double")).numpy() == np.array([
     [[3.,2.]
     ,[0.,0.]]]))
 assert(test.all())
 assert(test.shape == layer.getOutputSize())
 
+# in a second time, we set the kernel, so the layer doesn't have to learn the parameters
 layer.setKernel(np.reshape(param,(2,3,3)))
 
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == 0)
 
+# we test that the layer perform the right operation
 test = (layer.compute(tf.constant(data,dtype="double"),[]).numpy() == np.array(
     [[[3,2]
     ,[0,0]]]))
@@ -109,6 +119,7 @@ E = np.array([
 pooling = NeuralNetwork.MaxPooling((2,2))
 pooling.setInputSize(E.shape)
 
+# we test the max pooling with no padding and a stride of 2
 pooling.setStride(2)
 D = pooling.compute(tf.constant(E,dtype="double"),[]).numpy()
 test = (D == np.array([
@@ -117,6 +128,7 @@ test = (D == np.array([
 assert(test.all())
 assert(test.shape == layer.getOutputSize())
 
+# we test the max pooling with no padding and a stride of 1
 pooling.setStride(1)
 D = pooling.compute(tf.constant(E,dtype="double"),[]).numpy()
 test = (D == np.array(
@@ -131,6 +143,7 @@ assert(test.shape == pooling.getOutputSize())
 pooling = NeuralNetwork.AveragePooling((2,2))
 pooling.setInputSize(E.shape)
 
+# we test the average pooling with no padding and a stride of 2
 pooling.setStride(2)
 D = pooling.compute(tf.constant(E,dtype="double"),[]).numpy()
 test = (D == np.array([
@@ -151,8 +164,10 @@ layer.setInputSize(data.shape)
 
 param = np.array([1,2, 1,1,1,2, 0,-1,1,0, 0,1,1,2])
 
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == len(param))
 
+# we test that the layer perform the right operation
 # I work with float, so I use inequality
 test = ((layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype="double")).numpy() - np.array(
     [[1, 1]
@@ -161,11 +176,15 @@ test = ((layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype=
 assert(test.all())
 assert(test.shape == layer.getOutputSize())
 
+# we set a different ouputSize that the algorith return
 layer.setOutputSize((2,3))
 
 param = np.array([1,2, 1,1,1,2, 0,-1,1,0, 0,1,1,2,2,0])
+
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == len(param))
 
+# we test that the layer perform the right operation
 # I work with float, so I use inequality
 test = ((layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype="double")).numpy() - np.array(
     [[1, 1, 1]
@@ -184,8 +203,11 @@ data = np.array(
 layer.setInputSize(data.shape)
 
 param = np.array([1,2, 1,1,1,2, 0,-1,1,0, 0,1,1,2, 1,0,1,1, -1,-1,0,-1, 1,1,0,1, 1,-1,0,1, 0,1,0,0, 0,1,0,2])
+
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == len(param))
 
+# we test that the layer perform the right operation
 # I work with float, so I use inequality
 test = ((layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype="double")).numpy() - np.array(
     [[1, 1]
@@ -197,8 +219,11 @@ assert(test.shape == layer.getOutputSize())
 layer.setOutputSize((2,3))
 
 param = np.array([1,2, 1,1,1,2, 0,-1,1,0, 0,1,1,2, 1,0,1,1, -1,-1,0,-1, 1,1,0,1, 1,-1,0,1, 0,1,0,0, 0,1,0,2,1,0])
+
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == len(param))
 
+# we test that the layer perform the right operation
 # I work with float, so I use inequality
 test = ((layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype="double")).numpy() - np.array(
     [[1, 1, 1]
@@ -217,8 +242,11 @@ data = np.array(
 layer.setInputSize(data.shape)
 
 param = np.array([1,2, 1,1,1,2, 1,0,1,1, -1,-1,0,-1, 1,1,0,1, 1,-1,0,1, 0,1,0,0, 0,1,0,2])
+
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == len(param))
 
+# we test that the layer perform the right operation
 # I work with float, so I use inequality
 test = ((layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype="double")).numpy() - np.array(
     [[1, 1]
@@ -230,8 +258,11 @@ assert(test.shape == layer.getOutputSize())
 layer.setOutputSize((2,3))
 
 param = np.array([1,2, 1,1,1,2, 1,0,1,1, -1,-1,0,-1, 1,1,0,1, 1,-1,0,1, 0,1,0,0, 0,1,0,2,1,-1])
+
+# we test that the layer take the right number of parameters
 assert(layer.getNbParameter() == len(param))
 
+# we test that the layer perform the right operation
 # I work with float, so I use inequality
 test = ((layer.compute(tf.constant(data,dtype="double"),tf.constant(param,dtype="double")).numpy() - np.array(
     [[1, 1, 1]
